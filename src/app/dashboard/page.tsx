@@ -49,6 +49,7 @@ export default async function DashboardPage() {
           bio={analysis.personality_bio}
           slug={analysis.share_slug}
           analyzedAt={analysis.analyzed_at}
+          analysis={analysis}
         />
 
         {/* Charts row */}
