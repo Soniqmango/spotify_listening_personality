@@ -8,7 +8,9 @@ import {
   getRecentTracks,
 } from "@/lib/spotify/fetchers";
 import { buildAnalysisResult } from "@/lib/spotify/analyzer";
-import { upsertUser, insertAnalysis, insertTopTracks } from "@/lib/db/queries";
+import { upsertUser, insertAnalysis, insertTopTracks, getLatestAnalysis } from "@/lib/db/queries";
+
+const RATE_LIMIT_MS = 60 * 60 * 1000; // 1 hour between analyses
 
 export async function POST() {
   const session = await getServerSession(authOptions);
@@ -18,22 +20,31 @@ export async function POST() {
 
   const { accessToken, refreshToken, spotifyId } = session;
 
+  // Rate limit: reject if last analysis was less than 1 hour ago
+  const existing = await getLatestAnalysis(spotifyId);
+  if (existing) {
+    const age = Date.now() - new Date(existing.analyzed_at).getTime();
+    if (age < RATE_LIMIT_MS) {
+      const retryAfterSec = Math.ceil((RATE_LIMIT_MS - age) / 1000);
+      return NextResponse.json(
+        { error: "Analysis was run recently. Please wait before refreshing.", retryAfter: retryAfterSec },
+        { status: 429, headers: { "Retry-After": String(retryAfterSec) } }
+      );
+    }
+  }
+
   try {
-    // Fetch all Spotify data in parallel where possible
     const [artists, tracks, recentTracks] = await Promise.all([
       getTopArtists(accessToken, refreshToken),
       getTopTracks(accessToken, refreshToken),
       getRecentTracks(accessToken, refreshToken),
     ]);
 
-    // Audio features depends on track IDs
     const trackIds = tracks.map((t) => t.id);
     const audioFeatures = await getAudioFeatures(trackIds, accessToken, refreshToken);
 
-    // Build analysis
     const result = buildAnalysisResult(artists, audioFeatures, recentTracks);
 
-    // Persist to DB
     const userId = await upsertUser({
       spotifyId,
       displayName: session.user?.name ?? null,

@@ -1,5 +1,6 @@
 import { NextAuthOptions } from "next-auth";
 import SpotifyProvider from "next-auth/providers/spotify";
+import "@/lib/env"; // validate env at startup
 
 const SPOTIFY_SCOPES = [
   "user-read-email",
